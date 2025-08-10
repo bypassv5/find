@@ -1,7 +1,12 @@
--- Auto-reinject on teleport  
+-- Auto-reinject + visited server persistence
 local scriptURL = "https://raw.githubusercontent.com/bypassv5/find/refs/heads/main/main.lua"
+
+local visitedServers = {} -- will be overwritten if queue_on_teleport loads it
 if queue_on_teleport then
-    queue_on_teleport("loadstring(game:HttpGet('"..scriptURL.."'))()")
+    queue_on_teleport([[
+        local visitedServers = ]] .. game:GetService("HttpService"):JSONEncode(visitedServers) .. [[
+        loadstring(game:HttpGet("]] .. scriptURL .. [["))()
+    ]])
 end
 
 local HttpService = game:GetService("HttpService")
@@ -50,7 +55,7 @@ end
 local function buildEmbed(nameText, baseOwner, mutationText, traitAmount, priceText, fullPrice)
     return {
         title = "NEW SECRET BRAINROT FOUND!",
-        color = 0x1ABC9C, -- teal color
+        color = 0x1ABC9C,
         fields = {
             { name = "Name", value = nameText, inline = true },
             { name = "Owner", value = baseOwner, inline = true },
@@ -165,97 +170,69 @@ local function findAndNotifySecrets()
     end
 end
 
--- Server hopping logic from your template script
-local running = true
-local teleporting = false
-
-local function getSuitableServers()
-    local ok, res = pcall(function()
-        return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"))
-    end)
-    if not ok or not res or not res.data then return {} end
-
-    local list = {}
-    for _, server in ipairs(res.data) do
-        if server.id ~= game.JobId then
-            table.insert(list, server.id)
+-- Get all suitable servers (multiple pages)
+local function getAllServers()
+    local allServers = {}
+    local cursor = ""
+    repeat
+        local url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100" .. (cursor ~= "" and "&cursor=" .. cursor or "")
+        local ok, res = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet(url))
+        end)
+        if ok and res and res.data then
+            for _, server in ipairs(res.data) do
+                if server.id ~= game.JobId and not table.find(visitedServers, server.id) then
+                    table.insert(allServers, server.id)
+                end
+            end
+            cursor = res.nextPageCursor or ""
+        else
+            break
         end
-    end
-    return list
+        task.wait(0.2)
+    until cursor == "" or #allServers >= 200
+    return allServers
 end
 
 local function tryTeleport(serverId)
-    if teleporting then return false end
-    teleporting = true
     local success, err = pcall(function()
         TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, LocalPlayer)
     end)
-    teleporting = false
     if not success then
         warn("[Teleport Error]", err)
+        task.wait(1) -- retry after 1 second
+        return false
     end
-    return success
+    return true
 end
 
+-- Main hopping loop
 local function hopLoop()
-    local triedServers = {}
-
-    while running do
+    while true do
         findAndNotifySecrets()
         task.wait(1)
 
-        local servers = getSuitableServers()
+        local servers = getAllServers()
         if #servers == 0 then
             print("[HOP] No suitable servers found, retrying in 10 seconds...")
             task.wait(10)
-            continue
-        end
-
-        -- Reset triedServers if all servers tried
-        if #triedServers == #servers then
-            triedServers = {}
-        end
-
-        local serverToTry
-
-        -- Try the 30th server first if not tried yet and exists
-        if #servers >= 30 and not table.find(triedServers, servers[30]) then
-            serverToTry = servers[30]
         else
-            -- Otherwise, pick a random server not tried yet
-            local available = {}
-            for _, sid in ipairs(servers) do
-                if not table.find(triedServers, sid) then
-                    table.insert(available, sid)
-                end
+            local targetServer = servers[math.random(#servers)]
+            table.insert(visitedServers, targetServer)
+            if tryTeleport(targetServer) then
+                print("[HOP] Teleporting to:", targetServer)
+                break
             end
-
-            if #available == 0 then
-                -- All tried, reset
-                triedServers = {}
-                available = servers
-            end
-
-            serverToTry = available[math.random(#available)]
-        end
-
-        table.insert(triedServers, serverToTry)
-
-        if tryTeleport(serverToTry) then
-            print("[HOP] Teleporting to server:", serverToTry)
-            break -- success, exit loop
-        else
-            print("[HOP] Failed to teleport to server:", serverToTry, "Trying another in 2 seconds...")
-            task.wait(2)
         end
     end
 end
 
--- Teleport failure fallback
+-- Teleport fail fallback
 TeleportService.TeleportInitFailed:Connect(function()
-    print("[Teleport Failed] Rejoining current server...")
-    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    print("[Teleport Failed] Retrying...")
+    task.wait(1)
+    hopLoop()
 end)
 
--- Start the hopping loop immediately
+-- Start
 coroutine.wrap(hopLoop)()
