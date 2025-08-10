@@ -179,22 +179,55 @@ local function tryTeleport(serverId)
 end
 
 local function hopLoop()
+    local triedServers = {}
+
     while running do
         findAndNotifySecrets()
-        task.wait(1) -- slight delay to avoid spamming
+        task.wait(1)
 
         local servers = getSuitableServers()
-        if #servers > 0 then
-            local serverId = servers[1]
-            if tryTeleport(serverId) then
-                print("[HOP] Teleporting to server:", serverId)
-                break -- break loop because teleporting
-            else
-                task.wait(1)
-            end
-        else
+        if #servers == 0 then
             print("[HOP] No suitable servers found, retrying in 10 seconds...")
             task.wait(10)
+            continue
+        end
+
+        -- Reset triedServers if all servers tried
+        if #triedServers == #servers then
+            triedServers = {}
+        end
+
+        local serverToTry
+
+        -- Try the 30th server first if not tried yet and exists
+        if #servers >= 30 and not table.find(triedServers, servers[30]) then
+            serverToTry = servers[30]
+        else
+            -- Otherwise, pick a random server not tried yet
+            local available = {}
+            for _, sid in ipairs(servers) do
+                if not table.find(triedServers, sid) then
+                    table.insert(available, sid)
+                end
+            end
+
+            if #available == 0 then
+                -- All tried, reset
+                triedServers = {}
+                available = servers
+            end
+
+            serverToTry = available[math.random(#available)]
+        end
+
+        table.insert(triedServers, serverToTry)
+
+        if tryTeleport(serverToTry) then
+            print("[HOP] Teleporting to server:", serverToTry)
+            break -- success, exit loop
+        else
+            print("[HOP] Failed to teleport to server:", serverToTry, "Trying another in 2 seconds...")
+            task.wait(2)
         end
     end
 end
