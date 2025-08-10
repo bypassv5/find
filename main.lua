@@ -158,7 +158,7 @@ local function getSuitableServers()
 
     local list = {}
     for _, server in ipairs(res.data) do
-        if server.id ~= game.JobId and server.playing >= 3 and server.playing <= 5 then
+        if server.id ~= game.JobId then
             table.insert(list, server.id)
         end
     end
