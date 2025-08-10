@@ -162,7 +162,7 @@ local function hopLoop()
         local servers = getServers()
         if #servers == 0 then
             print("[HOP] No new servers found, retrying in 10 seconds...")
-            task.wait(10)
+            task.wait(2)
         else
             local target = servers[math.random(#servers)]
             lastJobId = target
