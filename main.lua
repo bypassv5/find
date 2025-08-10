@@ -170,6 +170,30 @@ local function teleportToServer(server)
     end
 end
 
--- Run scanning + hopping continuously without stopping
+-- Main loop to scan and notify, and then server hop
 while true do
-    findAndNotifySecrets
+    findAndNotifySecrets()
+
+    local serverToJoin = getSuitableServer()
+    if serverToJoin then
+        print("Attempting to teleport to server:", serverToJoin.id, "with", serverToJoin.playing, "players")
+
+        -- Use queue_on_teleport to ensure the script reinjects after teleport
+        queue_on_teleport(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/bypassv5/find/refs/heads/main/main.lua"))()
+        end)
+
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, serverToJoin.id, Player)
+        break -- Break the loop because teleporting
+    else
+        warn("No suitable server found, retrying in 10 seconds...")
+        task.wait(10)
+    end
+end
+
+-- Teleport failure handler to retry joining current server
+TeleportService.TeleportInitFailed:Connect(function()
+    warn("Teleport failed, retrying join current server...")
+    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, Player)
+end)
+
