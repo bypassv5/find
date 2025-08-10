@@ -42,12 +42,10 @@ local function buildEmbed(nameText, baseOwner, mutationText, traitAmount, priceT
             { name = "Owner", value = baseOwner, inline = true },
             { name = "Mutation", value = mutationText, inline = true },
             { name = "Trait Count", value = tostring(traitAmount), inline = true },
-            { name = "Price Label", value = priceText, inline = true },
-            { name = "Full Price", value = tostring(fullPrice), inline = true },
+            { name = "Price", value = priceText, inline = true },
             { name = "Join Game", value = "[Click Here](https://chillihub1.github.io/chillihub-joiner/?placeId=" .. tostring(game.PlaceId) .. "&gameInstanceId=" .. tostring(game.JobId) .. ")", inline = false }
         },
-        timestamp = os.date("!%Y-%m-%dT%TZ"),
-        footer = { text = "Secret Brainrot Detector" }
+        footer = { text = "FinderX | Roblox Server Hopping Tool" }
     }
 end
 
