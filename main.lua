@@ -18,8 +18,22 @@ local webhooks = {
     range100mplus  = "https://discord.com/api/webhooks/1403878280926331021/LavIqWCitDjr2KnldHMNElKYY6zCIJ86jH57eHB1DKsWlgj89vaHlRyZ8mClfvY9cuET"
 }
 
-local function sendWebhook(url, embed)
-    local payload = HttpService:JSONEncode({ embeds = { embed } })
+-- Role IDs to ping on Discord by price tier
+local rolePingIds = {
+    everything = "<@&1403882039299539135>",
+    over500k   = "<@&1403882094408630472>",
+    over1m     = "<@&1403882113215758477>",
+    over10m    = "<@&1403882129930059916>",
+    over100m   = "<@&1403882159151911024>"
+}
+
+local function sendWebhook(url, embed, content)
+    local payloadTable = { embeds = { embed } }
+    if content and content ~= "" then
+        payloadTable.content = content
+    end
+
+    local payload = HttpService:JSONEncode(payloadTable)
     local req = (syn and syn.request) or http_request or (fluxus and fluxus.request)
     if not req then warn("No HTTP request function found."); return end
 
@@ -123,22 +137,29 @@ local function findAndNotifySecrets()
                 local fullPrice = numberPart * (multipliers[letter] or 1)
 
                 local webhookToSend
+                local content = ""
+
                 if fullPrice < 500_000 then
                     webhookToSend = webhooks.under500k
+                    content = rolePingIds.everything
                 elseif fullPrice < 1_000_000 then
                     webhookToSend = webhooks.range500k_1m
+                    content = rolePingIds.over500k
                 elseif fullPrice < 10_000_000 then
                     webhookToSend = webhooks.range1m_10m
+                    content = rolePingIds.over1m
                 elseif fullPrice < 100_000_000 then
                     webhookToSend = webhooks.range10m_100m
+                    content = rolePingIds.over10m
                 else
                     webhookToSend = webhooks.range100mplus
+                    content = rolePingIds.over100m
                 end
 
                 local embed = buildEmbed(nameText, baseOwner, mutationText, traitAmount, priceText, fullPrice)
 
                 print("NEW SECRET BRAINROT FOUND! Name:", nameText, "Owner:", baseOwner, "Price:", fullPrice)
-                sendWebhook(webhookToSend, embed)
+                sendWebhook(webhookToSend, embed, content)
             end
         end
     end
