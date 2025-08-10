@@ -7,6 +7,7 @@ end
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Webhook URLs for different price ranges
@@ -169,37 +170,28 @@ end
 local running = true
 local teleporting = false
 local triedServers = {}
+local hopRequested = false
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.Q then
+        print("[MANUAL HOP] Q pressed, requesting hop retry.")
+        hopRequested = true
+    end
+end)
 
 local function getSuitableServers()
-    local servers = {}
-    local cursor = nil
+    local ok, res = pcall(function()
+        return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"))
+    end)
+    if not ok or not res or not res.data then return {} end
 
-    repeat
-        local url = "https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"
-        if cursor then
-            url = url .. "&cursor=" .. cursor
+    local list = {}
+    for _, server in ipairs(res.data) do
+        if server.id ~= game.JobId then
+            table.insert(list, server.id)
         end
-
-        local ok, res = pcall(function()
-            return HttpService:JSONDecode(game:HttpGet(url))
-        end)
-        if not ok or not res or not res.data then
-            break
-        end
-
-        for _, server in ipairs(res.data) do
-            if server.id ~= game.JobId then
-                table.insert(servers, server.id)
-            end
-        end
-
-        cursor = res.nextPageCursor
-        if cursor then
-            task.wait(0.1) -- tiny wait to be polite to Roblox API
-        end
-    until not cursor
-
-    return servers
+    end
+    return list
 end
 
 local function tryTeleport(serverId)
@@ -217,21 +209,19 @@ end
 
 local function hopLoop()
     while running do
-        findAndNotifySecrets() -- scan + webhook send immediately
+        findAndNotifySecrets()
 
         local servers = getSuitableServers()
         if #servers == 0 then
             print("[HOP] No suitable servers found, retrying immediately...")
-            -- no wait here, instant retry
+            task.wait(0.5)
         else
-            -- Reset triedServers if all tried
             if #triedServers == #servers then
                 triedServers = {}
             end
 
             local serverToTry
 
-            -- Try the 30th server first if exists and not tried
             if #servers >= 30 and not table.find(triedServers, servers[30]) then
                 serverToTry = servers[30]
             else
@@ -254,11 +244,27 @@ local function hopLoop()
 
             if tryTeleport(serverToTry) then
                 print("[HOP] Teleporting to server:", serverToTry)
-                break -- success, exit loop
+                break
             else
                 print("[HOP] Failed to teleport to server:", serverToTry, "Trying again in 1 second...")
-                task.wait(1)
+                local waited = 0
+                while waited < 1 do
+                    task.wait(0.1)
+                    waited = waited + 0.1
+                    if hopRequested then
+                        print("[MANUAL HOP] Forced hop requested during wait.")
+                        hopRequested = false
+                        break
+                    end
+                end
             end
+        end
+
+        if hopRequested then
+            print("[MANUAL HOP] Hop requested, restarting hop attempt.")
+            hopRequested = false
+        else
+            task.wait(0.5)
         end
     end
 end
