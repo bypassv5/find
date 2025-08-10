@@ -1,9 +1,15 @@
-local HttpService = game:GetService("HttpService")
-local Players = game:GetService("Players")
-local TeleportService = game:GetService("TeleportService")
-local Player = Players.LocalPlayer
+-- Auto-reinject on teleport  
+local scriptURL = "https://raw.githubusercontent.com/bypassv5/find/refs/heads/main/main.lua"
+if queue_on_teleport then
+    queue_on_teleport("loadstring(game:HttpGet('"..scriptURL.."'))()")
+end
 
--- Webhook URLs
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Webhook URLs for different price ranges
 local webhooks = {
     under500k      = "https://discord.com/api/webhooks/1403878141621043271/lemMmGTrF2EU_DMgOPyzvuwkXHCtBlXiFhu3TTWQf3JrCYd2yvJYwNU3zdU0dxrzm7LT",
     range500k_1m   = "https://discord.com/api/webhooks/1403878181244637346/6pxFD6sBGH3Sct9F6z_502ScTV8W44nLZ1ozDy9wTWqeRt_uRRcdysOozEKPvOkta7p-",
@@ -14,18 +20,23 @@ local webhooks = {
 
 local function sendWebhook(url, embed)
     local payload = HttpService:JSONEncode({ embeds = { embed } })
-    syn.request({
-        Url = url,
-        Method = "POST",
-        Headers = { ["Content-Type"] = "application/json" },
-        Body = payload
-    })
+    local req = (syn and syn.request) or http_request or (fluxus and fluxus.request)
+    if not req then warn("No HTTP request function found."); return end
+
+    pcall(function()
+        req({
+            Url = url,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = payload
+        })
+    end)
 end
 
 local function buildEmbed(nameText, baseOwner, mutationText, traitAmount, priceText, fullPrice)
     return {
         title = "NEW SECRET BRAINROT FOUND!",
-        color = 0x1ABC9C,
+        color = 0x1ABC9C, -- teal color
         fields = {
             { name = "Name", value = nameText, inline = true },
             { name = "Owner", value = baseOwner, inline = true },
@@ -41,10 +52,10 @@ local function buildEmbed(nameText, baseOwner, mutationText, traitAmount, priceT
 end
 
 local function findAndNotifySecrets()
-    local PlayerName = Player.DisplayName
+    local PlayerName = LocalPlayer.DisplayName
 
-    for _, v in ipairs(workspace.Plots:GetChildren()) do
-        local sign = v:FindFirstChild("PlotSign")
+    for _, plot in ipairs(workspace.Plots:GetChildren()) do
+        local sign = plot:FindFirstChild("PlotSign")
         if not sign then continue end
 
         local surf = sign:FindFirstChild("SurfaceGui")
@@ -56,16 +67,20 @@ local function findAndNotifySecrets()
         local label = frame:FindFirstChild("TextLabel")
         if not label then continue end
 
-        if label.Text == "Empty Base" then continue end
+        if label.Text == "Empty Base" then
+            continue
+        end
 
         local baseOwner = string.split(label.Text, "'")[1]
-        if baseOwner == PlayerName then continue end
+        if baseOwner == PlayerName then
+            continue
+        end
 
-        local podiums = v:FindFirstChild("AnimalPodiums")
+        local podiums = plot:FindFirstChild("AnimalPodiums")
         if not podiums then continue end
 
-        for _, b in ipairs(podiums:GetChildren()) do
-            local spawn = b:FindFirstChild("Base") and b.Base:FindFirstChild("Spawn")
+        for _, podium in ipairs(podiums:GetChildren()) do
+            local spawn = podium:FindFirstChild("Base") and podium.Base:FindFirstChild("Spawn")
             if not spawn then continue end
 
             local attach = spawn:FindFirstChild("Attatchment") or spawn:FindFirstChild("Attachment")
@@ -81,7 +96,6 @@ local function findAndNotifySecrets()
             if rarity.Text == "Secret" and stolen.Text ~= "FUSING" then
                 local mutation = overhead:FindFirstChild("Mutation")
                 local price = overhead:FindFirstChild("Generation")
-                local cost = overhead:FindFirstChild("Price")
                 local name = overhead:FindFirstChild("DisplayName")
                 local traits = overhead:FindFirstChild("Traits")
 
@@ -132,68 +146,64 @@ local function findAndNotifySecrets()
     end
 end
 
--- Server hopping logic with safe error handling and retry, without stopping script
-local function getSuitableServer()
-    local servers
-    local success, err = pcall(function()
-        servers = HttpService:JSONDecode(HttpService:GetAsync(
-            string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", game.PlaceId)
-        ))
-    end)
-    if not success or not servers or not servers.data then
-        warn("Failed to get server list:", err)
-        return nil
-    end
+-- Server hopping logic from your template script
+local running = true
+local teleporting = false
 
-    for _, server in ipairs(servers.data) do
-        if server.playing >= 3 and server.playing <= 5 and server.id ~= game.JobId then
-            return server
+local function getSuitableServers()
+    local ok, res = pcall(function()
+        return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100"))
+    end)
+    if not ok or not res or not res.data then return {} end
+
+    local list = {}
+    for _, server in ipairs(res.data) do
+        if server.id ~= game.JobId and server.playing >= 3 and server.playing <= 5 then
+            table.insert(list, server.id)
         end
     end
-
-    return nil
+    return list
 end
 
-local function teleportToServer(server)
-    if server then
-        print("Teleporting to server:", server.id, "with", server.playing, "players")
-        -- Proper function usage of queue_on_teleport as per your instruction:
-        queue_on_teleport(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/bypassv5/find/refs/heads/main/main.lua"))()
-        end)
-        TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, Player)
-    else
-        warn("No suitable server found, retrying in 10 seconds...")
-        wait(2)
-        local newServer = getSuitableServer()
-        teleportToServer(newServer)
+local function tryTeleport(serverId)
+    if teleporting then return false end
+    teleporting = true
+    local success, err = pcall(function()
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, LocalPlayer)
+    end)
+    teleporting = false
+    if not success then
+        warn("[Teleport Error]", err)
+    end
+    return success
+end
+
+local function hopLoop()
+    while running do
+        findAndNotifySecrets()
+        task.wait(1) -- slight delay to avoid spamming
+
+        local servers = getSuitableServers()
+        if #servers > 0 then
+            local serverId = servers[1]
+            if tryTeleport(serverId) then
+                print("[HOP] Teleporting to server:", serverId)
+                break -- break loop because teleporting
+            else
+                task.wait(1)
+            end
+        else
+            print("[HOP] No suitable servers found, retrying in 10 seconds...")
+            task.wait(10)
+        end
     end
 end
 
--- Main loop to scan and notify, and then server hop
-while true do
-    findAndNotifySecrets()
-
-    local serverToJoin = getSuitableServer()
-    if serverToJoin then
-        print("Attempting to teleport to server:", serverToJoin.id, "with", serverToJoin.playing, "players")
-
-        -- Use queue_on_teleport to ensure the script reinjects after teleport
-        queue_on_teleport(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/bypassv5/find/refs/heads/main/main.lua"))()
-        end)
-
-        TeleportService:TeleportToPlaceInstance(game.PlaceId, serverToJoin.id, Player)
-        break -- Break the loop because teleporting
-    else
-        warn("No suitable server found, retrying in 10 seconds...")
-        task.wait(10)
-    end
-end
-
--- Teleport failure handler to retry joining current server
+-- Teleport failure fallback
 TeleportService.TeleportInitFailed:Connect(function()
-    warn("Teleport failed, retrying join current server...")
-    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, Player)
+    print("[Teleport Failed] Rejoining current server...")
+    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
 end)
 
+-- Start the hopping loop immediately
+coroutine.wrap(hopLoop)()
