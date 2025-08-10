@@ -22,11 +22,10 @@ local function sendWebhook(url, embed)
     })
 end
 
--- Function to build embed message with clickable link
 local function buildEmbed(nameText, baseOwner, mutationText, traitAmount, priceText, fullPrice)
     return {
         title = "NEW SECRET BRAINROT FOUND!",
-        color = 0x1ABC9C, -- teal color
+        color = 0x1ABC9C,
         fields = {
             { name = "Name", value = nameText, inline = true },
             { name = "Owner", value = baseOwner, inline = true },
@@ -42,7 +41,6 @@ local function buildEmbed(nameText, baseOwner, mutationText, traitAmount, priceT
 end
 
 local function findAndNotifySecrets()
-    local PlayerPlot
     local PlayerName = Player.DisplayName
 
     for _, v in ipairs(workspace.Plots:GetChildren()) do
@@ -58,15 +56,10 @@ local function findAndNotifySecrets()
         local label = frame:FindFirstChild("TextLabel")
         if not label then continue end
 
-        if label.Text == "Empty Base" then
-            continue
-        end
+        if label.Text == "Empty Base" then continue end
 
         local baseOwner = string.split(label.Text, "'")[1]
-        if baseOwner == PlayerName then
-            PlayerPlot = v
-            continue
-        end
+        if baseOwner == PlayerName then continue end
 
         local podiums = v:FindFirstChild("AnimalPodiums")
         if not podiums then continue end
@@ -105,7 +98,6 @@ local function findAndNotifySecrets()
                     end
                 end
 
-                -- Clean price, e.g. "$343.7k/s"
                 priceText = priceText:gsub("%$", ""):gsub("/s", ""):gsub("%s+", "")
                 local multipliers = { K = 1_000, M = 1_000_000, B = 1_000_000_000 }
                 local letter = priceText:sub(-1)
@@ -118,7 +110,6 @@ local function findAndNotifySecrets()
                 end
                 local fullPrice = numberPart * (multipliers[letter] or 1)
 
-                -- Select webhook channel based on fullPrice
                 local webhookToSend
                 if fullPrice < 500_000 then
                     webhookToSend = webhooks.under500k
@@ -141,9 +132,7 @@ local function findAndNotifySecrets()
     end
 end
 
--- Server hopping logic
-local RunService = game:GetService("RunService")
-
+-- Server hopping logic with safe error handling and retry, without stopping script
 local function getSuitableServer()
     local servers
     local success, err = pcall(function()
@@ -156,7 +145,6 @@ local function getSuitableServer()
         return nil
     end
 
-    -- Filter for servers with 3 to 5 players (around 4)
     for _, server in ipairs(servers.data) do
         if server.playing >= 3 and server.playing <= 5 and server.id ~= game.JobId then
             return server
@@ -169,9 +157,10 @@ end
 local function teleportToServer(server)
     if server then
         print("Teleporting to server:", server.id, "with", server.playing, "players")
-        if queue_on_teleport then
-            queue_on_teleport("loadstring(game:HttpGet('https://raw.githubusercontent.com/bypassv5/find/refs/heads/main/main.lua'))()")
-        end
+        -- Proper function usage of queue_on_teleport as per your instruction:
+        queue_on_teleport(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/bypassv5/find/refs/heads/main/main.lua"))()
+        end)
         TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, Player)
     else
         warn("No suitable server found, retrying in 10 seconds...")
@@ -181,12 +170,6 @@ local function teleportToServer(server)
     end
 end
 
--- Start the process
-findAndNotifySecrets()
-
--- After sending webhooks, hop to a suitable server
-local serverToJoin = getSuitableServer()
-teleportToServer(serverToJoin)
-
--- Optionally, to keep checking server population and hop again if full,
--- you could add a loop or RunService.Heartbeat connection in a full executor environment.
+-- Run scanning + hopping continuously without stopping
+while true do
+    findAndNotifySecrets
