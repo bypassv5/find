@@ -1,5 +1,5 @@
 -- Auto-reinject on teleport
-local scriptURL = "https://raw.githubusercontent.com/bypassv5/find/refs/heads/main/main.lua"
+local scriptURL = "https://raw.githubusercontent.com/bypassv5/find/refs/heads/main/ryad.csc"
 if queue_on_teleport then
     queue_on_teleport("loadstring(game:HttpGet('"..scriptURL.."'))()")
 end
